@@ -120,6 +120,4 @@ Most amateur and university rocketry teams currently test flight computer firmwa
 
 If you're part of a university rocketry team or building your own flight computer and want to try this against your firmware, [open an issue](../../issues) or reach out — happy to help wire it up.
 
-## License
 
-MIT
