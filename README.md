@@ -1,12 +1,12 @@
 # Rocket Firmware Simulator
 
-Test your rocket flight computer firmware against a realistic simulated flight — no hardware, no launch required.
+Test your rocket flight computer firmware against a realistic simulated flight.
 
 ## What this is
 
 If you're building a flight computer for high-power rocketry, your only real way to test apogee detection, pyro channel firing, and other flight logic has traditionally been to launch a rocket and hope it works. That's expensive, weather-dependent, and you only get one shot per test.
 
-This tool runs your **actual firmware code**, unmodified and compiled natively on your laptop, against a physically realistic simulated flight powered by [RocketPy](https://github.com/RocketPy-Team/RocketPy). Your firmware reads simulated sensor data — barometer, accelerometer, gyroscope, GPS — exactly as it would read real hardware, with realistic sensor noise based on actual datasheet specifications. At the end of the simulated flight, you get a pass/fail report comparing what your firmware decided against the ground truth physics.
+This tool runs your firmware code, unmodified and compiled natively on your laptop, against a physically realistic simulated flight powered by [RocketPy](https://github.com/RocketPy-Team/RocketPy). Your firmware reads simulated sensor data: barometer, accelerometer, gyroscope, GPS — exactly as it would read real hardware, with realistic sensor noise based on actual datasheet specifications. At the end of the simulated flight, you get a pass/fail report comparing what your firmware decided against the ground truth physics.
 
 ```
 === TEST REPORT ===
