@@ -6,15 +6,19 @@ KalmanState kf;
 
 
 void setup() {
+  // CONNECT TO SIMULATOR
   HAL_Init();
   printf("[main] HAL initialised, waiting for data...\n");
 }
 
 void loop() {
+  // PULLS LATEST PACKET FROM SIMULATOR
   HAL_Update();
 
+  // ALTITUDE DATA
   float altitude_from_baro = HAL_ReadAlt();
 
+  // EXAMPLE KALMAN FILTER
   kalman_predict(kf);
   kalman_update(kf, altitude_from_baro);
 
