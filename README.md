@@ -81,7 +81,7 @@ This will:
 
 ## Configuring the simulated rocket
 
-Rocket, motor, and flight parameters are defined directly in `run_test.py` — edit the `Rocket`, `SolidMotor`, and `Flight` setup near the top of the file to match your own vehicle. A YAML-based config (so you don't need to touch Python to change rocket parameters) is on the roadmap.
+Rocket, motor, and flight parameters are defined directly in `simulation.py` — edit the `Rocket`, `SolidMotor`, and `Flight` setup near the top of the file to match your own vehicle. A YAML-based config (so you don't need to touch Python to change rocket parameters) is on the roadmap.
 
 ## Sensor noise model
 
