@@ -69,7 +69,7 @@ build_flags = -lws2_32 -mconsole
 ## Usage
 
 ```bash
-python run_test.py
+python simulation.py
 ```
 
 This will:
