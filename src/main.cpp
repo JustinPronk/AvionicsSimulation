@@ -11,9 +11,11 @@ void setup() {
   printf("[main] HAL initialised, waiting for data...\n");
 }
 
-void loop() {
+void loop() {  
   // PULLS LATEST PACKET FROM SIMULATOR
   HAL_Update();
+
+  // RUN YOUR AVIONICS CODE HERE
 
   // ALTITUDE DATA
   float altitude_from_baro = HAL_ReadAlt();
