@@ -17,7 +17,7 @@ def find_pio():
     if pio:
         return pio
 
-    # Common install locations across platforms
+    
     home = os.path.expanduser("~")
     candidates = [
         os.path.join(home, ".platformio", "penv", "Scripts", "platformio.exe"),  
@@ -36,7 +36,7 @@ PIO = find_pio()
 print("[RUNNER] Cleaning native build...")
 subprocess.run([PIO, "run", "-e", "native", "-t", "clean"], capture_output=True, text=True)
 
-# --- Step 2: Build ---
+
 print("[RUNNER] Building firmware (native)...")
 build = subprocess.run([PIO, "run", "-e", "native"], capture_output=True, text=True)
 if build.returncode != 0:
@@ -46,7 +46,7 @@ if build.returncode != 0:
     sys.exit(1)
 print("[RUNNER] Build succeeded.\n")
 
-# --- Step 3: Launch firmware as a background process ---
+
 print("[RUNNER] Launching firmware...\n")
 firmware_proc = subprocess.Popen(
     [".pio/build/native/program.exe"],
@@ -66,7 +66,7 @@ output_thread.start()
 
 time.sleep(0.5)  
 
-# --- Step 4: Rocket / motor / flight setup ---
+
 env = Environment(latitude=51.5, longitude=-3.18, elevation=100)
 
 motor = SolidMotor(
@@ -97,7 +97,7 @@ flight = Flight(rocket=rocket, environment=env, rail_length=3,
 
 print(f"[SIM] Apogee: {flight.apogee - env.elevation:.1f}m AGL at T+{flight.apogee_time:.2f}s\n")
 
-# --- Step 5: Socket server ---
+
 server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 server.bind(('localhost', 9000))
@@ -181,11 +181,11 @@ while t <= flight.t_final:
 
 print("\n[SIM] Flight complete")
 
-# --- Step 6: Shut down firmware process ---
+
 firmware_proc.terminate()
 firmware_proc.wait()
 
-# --- Step 7: Test report ---
+
 true_apogee_time = flight.apogee_time
 true_apogee_alt = flight.apogee - env.elevation
 
