@@ -64,7 +64,7 @@ build_flags = -lws2_32 -mconsole
 
 > `-lws2_32` is required on Windows for socket support. Omit it on macOS/Linux.
 
-3. Make sure your firmware reads sensors through the HAL functions defined in `Hal.h` (`HAL_ReadPressure()`, `HAL_ReadAccelX()`, etc.) rather than talking to hardware registers directly. See `examples/main.cpp.example` for the expected structure.
+3. Make sure your firmware reads sensors through the HAL functions defined in `Hal.h` (`HAL_ReadPressure()`, `HAL_ReadAccelX()`, etc.) rather than talking to hardware registers directly. See `main.cpp` for the expected structure.
 
 ## Usage
 
