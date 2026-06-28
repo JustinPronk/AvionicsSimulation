@@ -18,8 +18,6 @@ void loop() {
   kalman_predict(kf);
   kalman_update(kf, altitude_from_baro);
 
-  //printf("RAW alt: %.2f | KF alt: %.2f | KF vel: %.2f | triggered: %d\n",
-  //  altitude_from_baro, kf.altitude, kf.velocity, kf.apogee_triggered);
 
 
   if (check_apogee(kf)) {
@@ -30,6 +28,6 @@ void loop() {
     printf(">>> PYRO 1 FIRED at altiude %.2f m\n", kf.altitude);
   }
 
-  // printf("Alt(est): %.2f | Vel(est): %.2f\n", kf.altitude, kf.velocity);
+
 }
 
