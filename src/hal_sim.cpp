@@ -7,11 +7,11 @@
 
 
 
-// Latest data packed received from the Python simulator
+
 static SensorData latest = {};
 static SOCKET sock = INVALID_SOCKET;
 
-// Call this once during startup to connect to the Python sim
+
 
 void HAL_Init() {
     WSADATA wsaData;
@@ -29,14 +29,12 @@ void HAL_Init() {
     printf("[HAL] Connected to simulator\n");
 }
 
-// Call this in the loop to pull the latest packet from the sim
 
 void HAL_Update() {
     char buf[256] = {};
     int n = recv(sock, buf, sizeof(buf) - 1, 0);
     if (n <= 0) return;
 
-    // Packet format from Python
     sscanf(buf, "%f,%f,%f,%f,%f,%f,%f,%f,%f,%f",
     &latest.pressure_pa,
     &latest.accel_x, &latest.accel_y, &latest.accel_z,
@@ -55,7 +53,7 @@ void HAL_SendEvent(const char* event_name, float value) {
 void HAL_FirePyro1(float current_altitude) {
     HAL_SendEvent("PYRO1", current_altitude);
 }
-// HAL function implementations
+
 
 float HAL_ReadPressure() { return latest.pressure_pa; }
 
