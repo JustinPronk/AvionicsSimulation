@@ -4,6 +4,7 @@ struct KalmanState {
     float altitude = 0;
     float velocity = 0;
     float accel = 0;
+    
 
     // Covariance matrix (3x3), flattened row-major
     float P[3][3] = {
@@ -13,6 +14,7 @@ struct KalmanState {
     };
 
     bool apogee_triggered = false;
+    bool main_triggered = false;
 };
 
 const float dt = 0.1f;
@@ -86,6 +88,14 @@ inline void kalman_update(KalmanState &k, float z) {
 inline bool check_apogee(KalmanState &k) {
     if (!k.apogee_triggered && k.velocity <= 0 && k.altitude > 5) {
         k.apogee_triggered = true;
+        return true;
+    }
+    return false;
+}
+
+inline bool check_main(KalmanState &k) {
+    if (k.altitude < 100){
+        k.main_triggered = true;
         return true;
     }
     return false;

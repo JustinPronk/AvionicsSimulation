@@ -55,6 +55,10 @@ void HAL_SendEvent(const char* event_name, float value) {
 void HAL_FirePyro1(float current_altitude) {
     HAL_SendEvent("PYRO1", current_altitude);
 }
+
+void HAL_FirePyro2(float current_altitude) {
+    HAL_SendEvent("PYRO2", current_altitude);
+}
 // HAL function implementations
 
 float HAL_ReadPressure() { return latest.pressure_pa; }

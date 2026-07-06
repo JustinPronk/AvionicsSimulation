@@ -8,8 +8,9 @@ import threading
 import shutil
 import os
 import math
+import json
+import argparse
 from rocketpy import Environment, Rocket, SolidMotor, Flight
-
 
 
 def find_pio():
@@ -17,11 +18,10 @@ def find_pio():
     if pio:
         return pio
 
-    # Common install locations across platforms
     home = os.path.expanduser("~")
     candidates = [
-        os.path.join(home, ".platformio", "penv", "Scripts", "platformio.exe"),  
-        os.path.join(home, ".platformio", "penv", "bin", "platformio"),          
+        os.path.join(home, ".platformio", "penv", "Scripts", "platformio.exe"),
+        os.path.join(home, ".platformio", "penv", "bin", "platformio"),
     ]
     for path in candidates:
         if os.path.isfile(path):
@@ -32,11 +32,28 @@ def find_pio():
         "on your PATH, or installed in the default location."
     )
 
+
+# --- Load config ---------------------------------------------------------
+parser = argparse.ArgumentParser()
+parser.add_argument("--config", default="config.json", help="Path to config file")
+args = parser.parse_args()
+
+with open(args.config) as f:
+    cfg = json.load(f)
+
+env_cfg = cfg["environment"]
+motor_cfg = cfg["motor"]
+rocket_cfg = cfg["rocket"]
+flight_cfg = cfg["flight"]
+noise_cfg = cfg["sensor_noise"]
+sim_cfg = cfg["sim"]
+val_cfg = cfg["validation"]
+# --------------------------------------------------------------------------
+
 PIO = find_pio()
 print("[RUNNER] Cleaning native build...")
 subprocess.run([PIO, "run", "-e", "native", "-t", "clean"], capture_output=True, text=True)
 
-# --- Step 2: Build ---
 print("[RUNNER] Building firmware (native)...")
 build = subprocess.run([PIO, "run", "-e", "native"], capture_output=True, text=True)
 if build.returncode != 0:
@@ -46,7 +63,6 @@ if build.returncode != 0:
     sys.exit(1)
 print("[RUNNER] Build succeeded.\n")
 
-# --- Step 3: Launch firmware as a background process ---
 print("[RUNNER] Launching firmware...\n")
 firmware_proc = subprocess.Popen(
     [".pio/build/native/program.exe"],
@@ -64,65 +80,84 @@ def stream_firmware_output(proc):
 output_thread = threading.Thread(target=stream_firmware_output, args=(firmware_proc,), daemon=True)
 output_thread.start()
 
-time.sleep(0.5)  
+time.sleep(0.5)
 
-# --- Step 4: Rocket / motor / flight setup ---
-env = Environment(latitude=51.5, longitude=-3.18, elevation=100)
+# --- Rocket / motor / flight setup, all from config ----------------------
+env = Environment(
+    latitude=env_cfg["latitude"],
+    longitude=env_cfg["longitude"],
+    elevation=env_cfg["elevation"],
+)
 
 motor = SolidMotor(
-    thrust_source=[[0, 0], [0.1, 800], [0.5, 820], [1.0, 810], [1.5, 800],
-                   [2.0, 790], [2.5, 750], [3.0, 600], [3.5, 200], [3.6, 0]],
-    dry_mass=0.5, dry_inertia=(0.02, 0.02, 0.001), nozzle_radius=0.025,
-    grain_number=4, grain_density=1700, grain_outer_radius=0.025,
-    grain_initial_inner_radius=0.015, grain_initial_height=0.1,
-    grain_separation=0.005, grains_center_of_mass_position=0.3,
-    center_of_dry_mass_position=0.3, nozzle_position=0,
-    burn_time=3.5, throat_radius=0.01,
+    thrust_source=motor_cfg["thrust_source"],
+    dry_mass=motor_cfg["dry_mass"],
+    dry_inertia=tuple(motor_cfg["dry_inertia"]),
+    nozzle_radius=motor_cfg["nozzle_radius"],
+    grain_number=motor_cfg["grain_number"],
+    grain_density=motor_cfg["grain_density"],
+    grain_outer_radius=motor_cfg["grain_outer_radius"],
+    grain_initial_inner_radius=motor_cfg["grain_initial_inner_radius"],
+    grain_initial_height=motor_cfg["grain_initial_height"],
+    grain_separation=motor_cfg["grain_separation"],
+    grains_center_of_mass_position=motor_cfg["grains_center_of_mass_position"],
+    center_of_dry_mass_position=motor_cfg["center_of_dry_mass_position"],
+    nozzle_position=motor_cfg["nozzle_position"],
+    burn_time=motor_cfg["burn_time"],
+    throat_radius=motor_cfg["throat_radius"],
 )
 
 rocket = Rocket(
-    radius=0.05, mass=2.0, inertia=(0.5, 0.5, 0.01),
-    power_off_drag=0.5, power_on_drag=0.5,
-    center_of_mass_without_motor=0.6,
+    radius=rocket_cfg["radius"],
+    mass=rocket_cfg["mass"],
+    inertia=tuple(rocket_cfg["inertia"]),
+    power_off_drag=rocket_cfg["power_off_drag"],
+    power_on_drag=rocket_cfg["power_on_drag"],
+    center_of_mass_without_motor=rocket_cfg["center_of_mass_without_motor"],
     coordinate_system_orientation="tail_to_nose",
 )
 
 rocket.add_motor(motor, position=0)
-rocket.add_nose(length=0.3, kind="ogive", position=1.2)
-rocket.add_fins(n=4, root_chord=0.12, tip_chord=0.06, span=0.08, position=0.1)
-rocket.add_parachute(name="main", cd_s=10.0, trigger=300)
+rocket.add_nose(**rocket_cfg["nose"])
+rocket.add_fins(**rocket_cfg["fins"])
+rocket.add_parachute(**rocket_cfg["parachute"])
 
-flight = Flight(rocket=rocket, environment=env, rail_length=3,
-                 inclination=90, heading=0, terminate_on_apogee=False)
+flight = Flight(
+    rocket=rocket, environment=env,
+    rail_length=flight_cfg["rail_length"],
+    inclination=flight_cfg["inclination"],
+    heading=flight_cfg["heading"],
+    terminate_on_apogee=False,
+)
 
 print(f"[SIM] Apogee: {flight.apogee - env.elevation:.1f}m AGL at T+{flight.apogee_time:.2f}s\n")
 
-# --- Step 5: Socket server ---
+# --- Socket server --------------------------------------------------------
 server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-server.bind(('localhost', 9000))
+server.bind((sim_cfg["socket_host"], sim_cfg["socket_port"]))
 server.listen(1)
 
-print("[SIM] Waiting for firmware to connect on port 9000...")
+print(f"[SIM] Waiting for firmware to connect on port {sim_cfg['socket_port']}...")
 conn, _ = server.accept()
 conn.setblocking(False)
 print("[SIM] Firmware connected! Sending flight data...\n")
 
-detected_apogee_time = None
-detected_apogee_alt = None
-detected_pyro1_time = None
-detected_pyro1_alt = None
+MIN_PYRO_SEPARATION_S = val_cfg["min_pyro_separation_s"]
+
+apogee_events = []
+pyro1_events = []
+pyro2_events = []
 
 t = 0
-dt = 0.01
+dt = sim_cfg["dt"]
 
-PRESSURE_NOISE_STD = 2.4
-BARO_NOISE_STD = 0.3
-ACCEL_NOISE_STD = 0.05 * 9.81 * math.sqrt(100)
-GYRO_NOISE_STD = math.radians(0.0038) * math.sqrt(100)
-GPS_NOISE_STD_METERS = 1.5 
+PRESSURE_NOISE_STD = noise_cfg["pressure_std"]
+BARO_NOISE_STD = noise_cfg["baro_std"]
+ACCEL_NOISE_STD = noise_cfg["accel_std_g"] * 9.81 * math.sqrt(100)
+GYRO_NOISE_STD = math.radians(noise_cfg["gyro_std_deg"]) * math.sqrt(100)
+GPS_NOISE_STD_METERS = noise_cfg["gps_std_meters"]
 GPS_NOISE_STD_DEG = GPS_NOISE_STD_METERS / 111320
-
 
 while t <= flight.t_final:
     try:
@@ -135,7 +170,6 @@ while t <= flight.t_final:
         pressure = flight.pressure(t)
         pressure_noisy = pressure + random.gauss(0, PRESSURE_NOISE_STD)
 
-
         ax, ay, az = flight.ax(t), flight.ay(t), flight.az(t)
         ax_noisy = ax + random.gauss(0, ACCEL_NOISE_STD)
         ay_noisy = ay + random.gauss(0, ACCEL_NOISE_STD)
@@ -146,13 +180,10 @@ while t <= flight.t_final:
         wy_noisy = wy + random.gauss(0, GYRO_NOISE_STD)
         wz_noisy = wz + random.gauss(0, GYRO_NOISE_STD)
 
-        lat, lon = 51.5, -3.18
+        lat, lon = env_cfg["latitude"], env_cfg["longitude"]
         lat_noisy = lat + random.gauss(0, GPS_NOISE_STD_DEG)
         lon_noisy = lon + random.gauss(0, GPS_NOISE_STD_DEG)
 
-
-        
-    
         packet = f"{pressure_noisy:.2f},{ax_noisy:.4f},{ay_noisy:.4f},{az_noisy:.4f},{wx_noisy:.4f},{wy_noisy:.4f},{wz_noisy:.4f},{lat_noisy:.6f},{lon_noisy:.6f},{alt_noisy:.2f}\n"
         conn.send(packet.encode())
 
@@ -164,13 +195,14 @@ while t <= flight.t_final:
                     continue
                 parts = [p.strip() for p in line.split(",")]
                 if parts[0] == "EVENT" and parts[1] == "APOGEE":
-                    detected_apogee_time = t
-                    detected_apogee_alt = float(parts[2])
-                    print(f"[SIM] Firmware reported APOGEE at T+{t:.2f}s, alt={detected_apogee_alt:.2f}m")
+                    apogee_events.append((t, float(parts[2])))
+                    print(f"[SIM] Firmware reported APOGEE at T+{t:.2f}s, alt={float(parts[2]):.2f}m")
                 elif parts[0] == "EVENT" and parts[1] == "PYRO1":
-                    detected_pyro1_time = t
-                    detected_pyro1_alt = float(parts[2])
-                    print(f"[SIM] Firmware reported PYRO1 FIRE at T+{t:.2f}s, alt={detected_pyro1_alt:.2f}m")
+                    pyro1_events.append((t, float(parts[2])))
+                    print(f"[SIM] Firmware reported PYRO1 FIRE at T+{t:.2f}s, alt={float(parts[2]):.2f}m")
+                elif parts[0] == "EVENT" and parts[1] == "PYRO2":
+                    pyro2_events.append((t, float(parts[2])))
+                    print(f"[SIM] Firmware reported PYRO2 FIRE at T+{t:.2f}s, alt={float(parts[2]):.2f}m")
 
         time.sleep(dt)
         t += dt
@@ -181,20 +213,28 @@ while t <= flight.t_final:
 
 print("\n[SIM] Flight complete")
 
-# --- Step 6: Shut down firmware process ---
 firmware_proc.terminate()
 firmware_proc.wait()
 
-# --- Step 7: Test report ---
+# --- Test report -----------------------------------------------------------
 true_apogee_time = flight.apogee_time
 true_apogee_alt = flight.apogee - env.elevation
+pyro2_state = val_cfg["pyro2"]
+true_pyro2_alt = rocket_cfg["parachute"]["trigger"]
+
+detected_apogee_time = apogee_events[0][0] if apogee_events else None
+detected_apogee_alt = apogee_events[0][1] if apogee_events else None
+detected_pyro1_time = pyro1_events[0][0] if pyro1_events else None
+detected_pyro1_alt = pyro1_events[0][1] if pyro1_events else None
+detected_pyro2_time = pyro2_events[0][0] if pyro2_events else None
+detected_pyro2_alt = pyro2_events[0][1] if pyro2_events else None
 
 print("\n=== TEST REPORT ===")
 if detected_apogee_time is None:
     print("Apogee detection:   FAIL (never detected)")
 else:
     time_error = abs(detected_apogee_time - true_apogee_time)
-    status = "PASS" if time_error < 1 else "FAIL"
+    status = "PASS" if time_error < val_cfg["apogee_time_tolerance_s"] else "FAIL"
     print(f"Apogee detection:   {status}")
     print(f"  True apogee:      {true_apogee_alt:.1f}m at T+{true_apogee_time:.2f}s")
     print(f"  Detected apogee:  {detected_apogee_alt:.1f}m at T+{detected_apogee_time:.2f}s")
@@ -204,12 +244,47 @@ print(f"\nPyro channel 1:")
 if detected_pyro1_time is None:
     print("  FAIL (never fired)")
 else:
-    expected_time = true_apogee_time
-    time_error = abs(detected_pyro1_time - expected_time)
-    status = "PASS" if time_error < 1.0 else "FAIL"
+    time_error = abs(detected_pyro1_time - true_apogee_time)
+    status = "PASS" if time_error < val_cfg["pyro1_time_tolerance_s"] else "FAIL"
     print(f"  {status}")
     print(f"  Fired at:       T+{detected_pyro1_time:.2f}s, alt={detected_pyro1_alt:.1f}m")
-    print(f"  Expected at:    T+{expected_time:.2f}s")
+    print(f"  Expected at:    T+{true_apogee_time:.2f}s")
     print(f"  Time error:     {time_error:.2f}s")
+
+
+if pyro2_state:
+    print(f"\nPyro channel 2:")
+    if detected_pyro2_time is None:
+        print("  FAIL (never fired)")
+    else:
+        alt_error = abs(detected_pyro2_alt - true_pyro2_alt)
+        status = "PASS" if alt_error < val_cfg["pyro2_alt_tolerance_m"] else "FAIL"
+        print(f"  {status}")
+        print(f"  Fired at:       T+{detected_pyro2_time:.2f}s, alt={detected_pyro2_alt:.1f}m")
+        print(f"  Expected at:    alt={true_pyro2_alt:.2f}m")
+        print(f"  Distance error: {alt_error:.2f}m")
+
+    # --- Deployment sequence validation -----------------------------------------
+    print(f"\n=== SEQUENCE VALIDATION ===")
+
+    for name, events in [("PYRO1", pyro1_events), ("PYRO2", pyro2_events)]:
+        if len(events) > 1:
+            times = ", ".join(f"T+{e[0]:.2f}s" for e in events)
+            print(f"{name} single-fire check: FAIL — fired {len(events)} times at: {times}")
+        elif len(events) == 1:
+            print(f"{name} single-fire check: PASS — fired once")
+
+    if detected_pyro1_time is not None and detected_pyro2_time is not None:
+        order_ok = detected_pyro2_time > detected_pyro1_time
+        print(f"PYRO1 -> PYRO2 order:  {'PASS' if order_ok else 'FAIL'} "
+            f"(PYRO1 at T+{detected_pyro1_time:.2f}s, PYRO2 at T+{detected_pyro2_time:.2f}s)")
+
+        gap = detected_pyro2_time - detected_pyro1_time
+        sep_ok = gap >= MIN_PYRO_SEPARATION_S
+        print(f"PYRO1/PYRO2 separation: {'PASS' if sep_ok else 'FAIL'} "
+            f"(gap={gap:.2f}s, min required={MIN_PYRO_SEPARATION_S}s)")
+    else:
+        print(f"PYRO1 -> PYRO2 order:  SKIPPED (one or both channels never fired)")
+        print(f"PYRO1/PYRO2 separation: SKIPPED (one or both channels never fired)")
 
 server.close()

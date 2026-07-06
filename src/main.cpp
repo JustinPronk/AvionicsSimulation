@@ -3,12 +3,14 @@
 #include <kalman.h>
 
 KalmanState kf;
-
+bool apogee = false;
 
 void setup() {
   HAL_Init();
   printf("[main] HAL initialised, waiting for data...\n");
 }
+
+
 
 void loop() {
   HAL_Update();
@@ -17,6 +19,7 @@ void loop() {
 
   kalman_predict(kf);
   kalman_update(kf, altitude_from_baro);
+
 
   //printf("RAW alt: %.2f | KF alt: %.2f | KF vel: %.2f | triggered: %d\n",
   //  altitude_from_baro, kf.altitude, kf.velocity, kf.apogee_triggered);
@@ -28,6 +31,13 @@ void loop() {
 
     HAL_FirePyro1(kf.altitude);
     printf(">>> PYRO 1 FIRED at altiude %.2f m\n", kf.altitude);
+    apogee = true;
+  }
+
+  if (apogee && check_main(kf)) {
+    HAL_FirePyro2(kf.altitude);
+    printf(">>> PYRO 2 FIRED at altiude %.2f m\n", kf.altitude);
+    apogee = false;
   }
 
   // printf("Alt(est): %.2f | Vel(est): %.2f\n", kf.altitude, kf.velocity);

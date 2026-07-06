@@ -27,3 +27,4 @@ void HAL_Init();
 void HAL_Update();
 void HAL_SendEvent(const char* event_name, float value);
 void HAL_FirePyro1(float current_altitude);
+void HAL_FirePyro2(float current_altitude);
