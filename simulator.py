@@ -12,6 +12,64 @@ import json
 import argparse
 from rocketpy import Environment, Rocket, SolidMotor, Flight
 
+def preflight_checks():
+    print("[CHECK] Running preflight checks...")
+    all_ok = True
+
+    # 1. Check Python version
+    import sys
+    if sys.version_info < (3, 9):
+        print(f"[CHECK] FAIL: Python 3.9+ required, you have {sys.version}")
+        all_ok = False
+    else:
+        print(f"[CHECK] PASS: Python {sys.version_info.major}.{sys.version_info.minor}")
+
+    # 2. Check RocketPy installed
+    try:
+        import rocketpy
+        print("[CHECK] PASS: RocketPy installed")
+    except ImportError:
+        print("[CHECK] FAIL: RocketPy not installed — run: pip install rocketpy")
+        all_ok = False
+
+    # 3. Check g++ available
+    import shutil
+    if shutil.which("g++"):
+        print("[CHECK] PASS: g++ found")
+    else:
+        print("[CHECK] FAIL: g++ not found — install MSYS2 on Windows or Xcode tools on macOS")
+        all_ok = False
+
+    # 4. Check PlatformIO available
+    try:
+        pio = find_pio()
+        print(f"[CHECK] PASS: PlatformIO found at {pio}")
+    except FileNotFoundError as e:
+        print(f"[CHECK] FAIL: {e}")
+        all_ok = False
+
+    # 5. Check port 9000 is free
+    import socket
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        result = s.connect_ex(('localhost', 9000))
+        if result == 0:
+            print("[CHECK] FAIL: Port 9000 is already in use — kill any previous simulator processes")
+            all_ok = False
+        else:
+            print("[CHECK] PASS: Port 9000 is free")
+
+    # 6. Check config file exists
+    if os.path.isfile(args.config):
+        print(f"[CHECK] PASS: Config file found ({args.config})")
+    else:
+        print(f"[CHECK] FAIL: Config file not found at '{args.config}' — copy config.json.example to config.json")
+        all_ok = False
+
+    if not all_ok:
+        print("\n[CHECK] One or more preflight checks failed. Fix the issues above and try again.")
+        sys.exit(1)
+
+    print("[CHECK] All checks passed.\n")
 
 def find_pio():
     pio = shutil.which("pio") or shutil.which("platformio")
@@ -49,7 +107,7 @@ noise_cfg = cfg["sensor_noise"]
 sim_cfg = cfg["sim"]
 val_cfg = cfg["validation"]
 # --------------------------------------------------------------------------
-
+CHECKS = preflight_checks()
 PIO = find_pio()
 print("[RUNNER] Cleaning native build...")
 subprocess.run([PIO, "run", "-e", "native", "-t", "clean"], capture_output=True, text=True)
