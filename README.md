@@ -1,12 +1,12 @@
 # Rocket Firmware Simulator
 
-Test your rocket flight computer firmware against a realistic simulated flight without any hardware, no launch required.
+Test your rocket flight computer firmware against a realistic simulated flight — no hardware required, no launch required.
 
 ## What this is
 
 If you're building a flight computer for high-power rocketry, your only real way to test apogee detection, pyro channel firing, and deployment sequence logic has traditionally been to launch a rocket and hope it works. That's expensive, weather-dependent, and you only get one shot per test.
 
-This tool runs your firmware code, unmodified and compiled natively on your laptop, against a physically realistic simulated flight powered by [RocketPy](https://github.com/RocketPy-Team/RocketPy). Your firmware reads simulated sensor data (barometer, accelerometer, gyroscope, GPS) exactly as it would read real hardware, with realistic sensor noise based on actual datasheet specifications. At the end of the simulated flight, you get a pass/fail report comparing what your firmware decided against the ground truth physics.
+This tool runs your firmware against a physically realistic simulated flight powered by [RocketPy](https://github.com/RocketPy-Team/RocketPy). Your firmware reads simulated sensor data (barometer, accelerometer, gyroscope, GPS) exactly as it would read real hardware, with realistic sensor noise based on actual datasheet specifications. At the end of the simulated flight, you get a pass/fail report comparing what your firmware decided against the ground truth physics.
 
 ```
 === TEST REPORT ===
@@ -34,38 +34,56 @@ PYRO1 -> PYRO2 order:       PASS (PYRO1 at T+18.27s, PYRO2 at T+24.11s)
 PYRO1/PYRO2 separation:     PASS (gap=5.84s, min required=2.0s)
 ```
 
+## Two modes
+
+### Software-in-the-loop (SIL)
+Your firmware compiles and runs natively on your laptop. No hardware needed at all. Fastest iteration cycle — rebuild and retest in seconds.
+
+### Hardware-in-the-loop (HIL)
+Your firmware runs on your actual flight computer hardware, but receives simulated sensor data over USB serial instead of reading real sensors. Tests the actual binary that will fly, on the actual chip it will run on, with real hardware timing and interrupts.
+
+```
+[RocketPy sim server on laptop]
+        ↕ USB Serial
+[Your actual flight computer]
+        ↑ HAL intercepts sensor reads
+        ↑ feeds simulated data instead of real sensors
+```
+
 ## How it works
 
 Your firmware is written against a small hardware abstraction layer (HAL) instead of communicating with sensor chips directly. On a real flight computer, the HAL talks to actual hardware. In simulation, a different implementation of the same HAL talks to this simulator instead.
 
 ```
-Your firmware (compiled natively on your laptop)
+Your firmware
         ↕  HAL_ReadPressure(), HAL_ReadAccelX(), etc.
 Simulator (Python + RocketPy)
         ↕
 Realistic 6-DOF flight physics + datasheet-accurate sensor noise
 ```
 
-The simulator streams sensor data to your firmware over a local socket at 100Hz (Maximum of 38 kHz), listens for events your firmware reports back (`APOGEE`, `PYRO1`, `PYRO2`), and compares them against RocketPy's known-correct physics at the end of the flight.
+The simulator streams sensor data to your firmware over TCP (SIL) or USB serial (HIL), listens for events your firmware reports back (`APOGEE`, `PYRO1`, `PYRO2`), and compares them against RocketPy's known-correct physics at the end of the flight.
+
+The server accepts whichever connection arrives first — TCP for a native SIL build, serial for real hardware. First come, first served.
 
 ## Requirements
 
-- [PlatformIO](https://platformio.org/) installed (CLI or VS Code extension)
 - Python 3.9+
-- A C++ compiler available natively on your machine:
+- For SIL mode: [PlatformIO](https://platformio.org/) installed (CLI or VS Code extension) and a C++ compiler:
   - **Windows**: [MSYS2](https://www.msys2.org/) with `mingw-w64-x86_64-gcc` installed, added to your PATH
   - **macOS**: Xcode Command Line Tools (`xcode-select --install`)
   - **Linux**: `gcc`/`g++` (usually already installed)
+- For HIL mode: any microcontroller with a UART (Arduino, ESP32, STM32, RP2040, etc.)
 
 ## Setup
-
-1. Clone this repo and install Python dependencies:
 
 ```bash
 pip install -r requirements.txt
 ```
 
-2. Add the native build environment to your `platformio.ini`:
+### SIL setup
+
+Add the native build environment to your `platformio.ini`:
 
 ```ini
 [env:native]
@@ -74,24 +92,80 @@ build_src_filter = +<main.cpp> +<hal_sim.cpp> +<native_main.cpp>
 build_flags = -lws2_32 -mconsole
 ```
 
-> `-lws2_32` and `-mconsole` are required on Windows for socket support. Omit both on macOS/Linux.
+> `-lws2_32` and `-mconsole` are required on Windows. Omit both on macOS/Linux.
 
-3. Make sure your firmware reads sensors through the HAL functions defined in `Hal.h` (`HAL_ReadPressure()`, `HAL_ReadAccelX()`, etc.) rather than talking to hardware registers directly. See `main.cpp` for the expected structure.
+Make sure your firmware reads sensors through the HAL functions defined in `Hal.h` rather than talking to hardware registers directly.
 
-4. Configure your rocket in `config.json` (see below).
+### HIL setup
+
+1. Copy `hal_sim.cpp` and `Hal.h` into your firmware project
+2. Add a platform serial implementation — two functions specific to your hardware:
+
+```cpp
+int hal_serial_write(const char* buf, int len);
+int hal_serial_read(char* buf, int len);
+```
+
+**Arduino / ESP32:**
+
+```cpp
+#include <Arduino.h>
+
+int hal_serial_write(const char* buf, int len) {
+    return Serial.write((const uint8_t*)buf, len);
+}
+
+int hal_serial_read(char* buf, int len) {
+    int i = 0;
+    while (i < len) {
+        while (!Serial.available());
+        buf[i++] = Serial.read();
+        if (buf[i-1] == '\n') break;
+    }
+    return i;
+}
+```
+
+**STM32 (HAL):**
+
+```cpp
+int hal_serial_write(const char* buf, int len) {
+    HAL_UART_Transmit(&huart2, (uint8_t*)buf, len, HAL_MAX_DELAY);
+    return len;
+}
+
+int hal_serial_read(char* buf, int len) {
+    int i = 0;
+    uint8_t c;
+    while (i < len) {
+        HAL_UART_Receive(&huart2, &c, 1, HAL_MAX_DELAY);
+        buf[i++] = c;
+        if (c == '\n') break;
+    }
+    return i;
+}
+```
+
+3. In your startup code, initialise serial at 115200 baud and call `HAL_Init()`
+4. Call `HAL_Update()` wherever your firmware currently reads sensors
+5. Flash normally — your build system is untouched
 
 ## Usage
 
 ```bash
-python run_test.py --config config.json
+python server.py --config config.json
 ```
 
-This will:
-1. Clean and rebuild your firmware for the native target
-2. Simulate a full rocket flight through RocketPy using your config
-3. Stream live sensor data (with realistic noise) into your firmware
-4. Print your firmware's debug output live, prefixed with `[FIRMWARE]`
+The server will:
+1. Set up the RocketPy flight from your config
+2. Ask which serial port to listen on (or skip for TCP only)
+3. Wait for a connection — TCP from a native SIL build, or serial from real hardware
+4. Stream live sensor data into your firmware
 5. Print a final pass/fail test report and sequence validation
+
+### Real-time vs fast mode
+
+By default the simulator runs in real-time at 100Hz, mirroring actual flight duration. Set `REALTIME = False` in `server.py` to run as fast as the firmware can consume data — useful for rapid iteration. The raw generation rate benchmarks at ~38kHz so even high-frequency avionics won't bottleneck the sim.
 
 ## Configuring your rocket
 
@@ -124,6 +198,11 @@ All rocket, motor, flight, noise, and validation parameters live in a single JSO
         "gyro_std_deg": 0.0038,
         "gps_std_meters": 1.5
     },
+    "sim": {
+        "dt": 0.01,
+        "socket_host": "localhost",
+        "socket_port": 9000
+    },
     "validation": {
         "apogee_time_tolerance_s": 1.0,
         "pyro1_time_tolerance_s": 1.0,
@@ -131,6 +210,10 @@ All rocket, motor, flight, noise, and validation parameters live in a single JSO
         "min_pyro_separation_s": 2.0,
         "pyro1": true,
         "pyro2": true
+    },
+    "telemetry": {
+        "enabled": true,
+        "server": "https://your-telemetry-server.com/session"
     }
 }
 ```
@@ -151,9 +234,21 @@ The sequence validator catches three real bug classes that can destroy a rocket:
 - **Wrong deployment order** — main deploying before drogue
 - **Insufficient channel separation** — pyro channels firing too close together
 
+## Telemetry
+
+By default the tool sends anonymous session statistics to a telemetry server after each run — mode (SIL or HIL), duration, packets sent, and pass/fail results per channel. No personally identifiable information is collected. No file paths, IP addresses, or usernames are ever sent.
+
+To opt out, set `"enabled": false` in the telemetry section of your config:
+
+```json
+"telemetry": {
+    "enabled": false
+}
+```
+
 ## Sensor noise model
 
-Sensor noise is modeled using real datasheet specifications so bugs that only appear under realistic noise aren't hidden by a clean simulation:
+Sensor noise is modelled using real datasheet specifications so bugs that only appear under realistic noise aren't hidden by a clean simulation:
 
 | Sensor | Spec | Std dev at 100Hz |
 |---|---|---|
@@ -170,7 +265,7 @@ This tool has been tested against real flight logs from [Altimeter Cloud](https:
 
 This is **not** a replacement for [OpenRocket](https://openrocket.info/) or RocketPy — those answer "will this rocket fly well?" This tool answers a different question: "does my flight computer's *code* make the right decisions during a flight?" The two are complementary.
 
-This also doesn't (yet) test actual hardware — it's software-in-the-loop (SITL). Hardware-in-the-loop (HIL) support is on the roadmap.
+This also doesn't replace test flights. It catches logic bugs early so your test flights are spent on the genuinely hard edge cases — pressure artifacts at transonic speeds, vibration resonance from your electronics sled — rather than basic state machine errors.
 
 ## Status
 
@@ -180,14 +275,16 @@ This also doesn't (yet) test actual hardware — it's software-in-the-loop (SITL
 - ✅ Datasheet-accurate sensor noise per sensor
 - ✅ JSON config file — no Python editing required
 - ✅ Validated against real Altimeter Cloud flight logs
+- ✅ HIL mode — real hardware over USB serial
+- ✅ Generic UART HAL — works on Arduino, ESP32, STM32, RP2040, anything with a UART
+- ✅ Anonymous usage telemetry with opt-out
 - ⬜ Staging / multi-stage logic
-- ⬜ HIL mode (real hardware over serial)
 - ⬜ CI / GitHub Actions integration
 - ⬜ CMake / non-PlatformIO build system support
 
 ## Why this exists
 
-Most amateur and university rocketry teams test flight computer firmware by launching a rocket and hoping it works, or with ad-hoc bench tests using real sensors — teams have independently built hardware vacuum chambers for barometer testing and spin rigs for accelerometer testing. There's no software equivalent of [ArduPilot's SITL](https://ardupilot.org/dev/docs/sitl-simulator-software-in-the-loop.html) for high-power rocketry. This is an attempt to build that.
+Most amateur and university rocketry teams test flight computer firmware by launching a rocket and hoping it works, or with ad-hoc bench tests — teams have independently built hardware vacuum chambers for barometer testing and spin rigs for accelerometer testing. There's no software equivalent of [ArduPilot's SITL](https://ardupilot.org/dev/docs/sitl-simulator-software-in-the-loop.html) for high-power rocketry. This is an attempt to build that.
 
 ## Contributing / trying this on your own firmware
 
