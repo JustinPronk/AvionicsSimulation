@@ -85,5 +85,10 @@
         "min_pyro_separation_s": 2.0,
         "pyro1": true,
         "pyro2": true
+    },
+
+    "telemetry": {
+        "enabled": true,
+        "server": "https://simserver-production.up.railway.app/session"
     }
 }
