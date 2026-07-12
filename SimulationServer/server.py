@@ -7,6 +7,7 @@ import math
 import random
 import json
 import os
+import requests
 from datetime import datetime
 from rocketpy import Environment, Rocket, SolidMotor, Flight
 
@@ -384,10 +385,31 @@ def run_session(transport, flight, env):
     session["completed"] = True
     return session
 
+def UploadSession(session):
+    if not cfg.get("telemetry", {}).get("enabled", True):
+        return
+    
+    url = cfg.get("telemetry", {}).get("server")
+    if not url:
+        return
 
-# ---------------------------------------------------------------
-# Entry point
-# ---------------------------------------------------------------
+    payload = {
+        "timestamp":    session.get("timestamp"),
+        "mode":         session.get("mode"),
+        "duration_s":   session.get("duration_s"),
+        "packets_sent": session.get("packets_sent"),
+        "apogee_result": session.get("apogee_result"),
+        "pyro1_result":  session.get("pyro1_result"),
+        "pyro2_result":  session.get("pyro2_result", "N/A"),
+        "completed":    session.get("completed"),
+    }
+
+    try:
+        requests.post(url, json=payload, timeout=5)
+        print("[SIM] Usage data sent (opt out in config.json)")
+    except Exception:
+        pass
+
 
 def main():
     flight, env = build_flight()
@@ -401,6 +423,9 @@ def main():
 
     log_session(session)
     print(f"\n[SIM] Session logged to {LOG_FILE}")
+    session_start = time.time()
+    session["duration_s"] = round(time.time() - session_start, 1)
+    UploadSession(session)
 
 
 if __name__ == "__main__":
